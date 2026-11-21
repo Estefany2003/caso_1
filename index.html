@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Calculadora de capacidad y balanceo</title>
+<style>
+:root{font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;color:#182230;background:#f4f6f8}
+*{box-sizing:border-box}body{margin:0;padding:24px}.wrap{max-width:1100px;margin:auto}
+header{background:#17324d;color:white;padding:24px;border-radius:16px;margin-bottom:18px}
+h1{margin:0 0 8px;font-size:clamp(1.5rem,3vw,2.2rem)}header p{margin:0;color:#dce8f2}
+.panel{background:white;border:1px solid #dce2e8;border-radius:14px;padding:18px;margin:14px 0;box-shadow:0 2px 8px #1020300a}
+.inputs{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}
+label{display:block;font-weight:650;font-size:.92rem;margin-bottom:6px}
+input,select{width:100%;padding:11px;border:1px solid #bdc8d3;border-radius:8px;font:inherit;background:white}
+small,.muted{color:#5d6b78}.muted{font-size:.9rem}
+button{background:#1769aa;color:white;border:0;border-radius:9px;padding:11px 18px;font-weight:700;cursor:pointer}
+button:hover{background:#0f548b}
+table{width:100%;border-collapse:collapse;margin-top:10px;font-size:.94rem}
+th,td{text-align:left;padding:10px;border-bottom:1px solid #e4e9ee}th{background:#f0f4f7}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.metric{background:#f3f7fa;border-radius:10px;padding:13px}.metric b{display:block;font-size:1.35rem;margin-top:4px}
+.warning{background:#fff5dc;border-left:4px solid #d69a18;padding:12px;border-radius:8px;margin-top:12px}
+.ok{background:#e8f6ee;border-left:4px solid #23945a;padding:12px;border-radius:8px;margin-top:12px}
+.error{color:#a51f2b;font-weight:650;margin-top:10px}
+.formula{font-family:ui-monospace,Consolas,monospace;background:#f4f6f8;padding:3px 6px;border-radius:5px}
+footer{font-size:.86rem;color:#596775;padding:12px 2px 30px}
+@media(max-width:600px){body{padding:12px}.panel{padding:14px}table{font-size:.82rem}th,td{padding:7px}}
+</style>
+</head>
+<body><main class="wrap">
+<header><h1>Calculadora de capacidad y balanceo</h1><p>Comparación de alternativas, cargas por estación, inventario, coste y productividad.</p></header>
+<section class="panel">
+<h2>Entradas</h2>
+<div class="inputs">
+<div><label for="demand">Demanda (unidades enteras)</label><input id="demand" type="number" min="1" step="1" value="300"></div>
+<div><label for="window">Ventana neta (minutos)</label><input id="window" type="number" min="1" step="1" value="420"></div>
+<div><label for="alternative">Alternativa</label><select id="alternative"><option value="ref">Referencia</option><option value="B">B</option><option value="C">C</option></select></div>
+<div id="pilotWrap"><label for="pilot">Tiempo normal C del piloto B (s/unidad)</label><input id="pilot" type="number" min="0.01" step="0.1" value="30"><small>Solo se utiliza al seleccionar B.</small></div>
+</div><p id="error" class="error" role="alert"></p>
+<button id="calculate" type="button">Calcular resultados</button>
+<p class="muted">Inventario disponible: 350 unidades de material.</p>
+</section>
+<section class="panel"><h2>Resultados</h2><div id="results" aria-live="polite"></div></section>
+<section class="panel"><h2>Fórmulas y supuestos</h2>
+<ul>
+<li>Capacidad por estación = ventana neta (min) × 60 / tiempo de estación (s/unidad).</li>
+<li>Capacidad de línea = mínimo de las capacidades de las estaciones.</li>
+<li>Volumen realizable = mínimo entre demanda, capacidad de línea e inventario (350 unidades).</li>
+<li>Faltante = demanda − volumen realizable.</li>
+<li>Coste diario = coste fijo diario + (coste variable por unidad × volumen realizable).</li>
+<li>Productividad = volumen realizable / 28 horas-persona por jornada.</li>
+</ul>
+<p class="muted">Supuestos del ejercicio: cuatro estaciones, una persona por estación, siete horas netas por persona (28 horas-persona), inventario máximo de 350 unidades. Costes y tiempos son datos simulados para practicar; no son datos oficiales de una empresa ni del docente.</p>
+<p><strong>Importante:</strong> es un cálculo de régimen con tiempos constantes. No incorpora variabilidad, paros imprevistos, reprocesos, aprendizaje ni dependencia entre operaciones.</p>
+</section>
+<footer>Herramienta académica de simulación. Los resultados dependen de los datos y supuestos ingresados.</footer>
+</main>
+<script>
+const INVENTORY=350, LABOR_HOURS=28;
+const DATA={
+ ref:{name:"Referencia",times:[30,40,50,25],fixed:540,variable:25},
+ B:{name:"B",times:[28,35,null,30],fixed:600,variable:27},
+ C:{name:"C",times:[32,38,45,34],fixed:570,variable:24}
+};
+const $=id=>document.getElementById(id);
+function fmt(n,d=2){return Number(n).toLocaleString("es-MX",{minimumFractionDigits:d,maximumFractionDigits:d});}
+function calculate(){
+ const demand=Number($("demand").value), windowMin=Number($("window").value), alt=$("alternative").value, pilot=Number($("pilot").value);
+ $("error").textContent="";
+ if(!Number.isInteger(demand)||demand<=0){$("error").textContent="La demanda debe ser un entero positivo.";return;}
+ if(!Number.isFinite(windowMin)||windowMin<=0){$("error").textContent="La ventana neta debe ser un valor positivo.";return;}
+ if(alt==="B"&&(!Number.isFinite(pilot)||pilot<=0)){$("error").textContent="El tiempo normal C del piloto B debe ser positivo.";return;}
+ const cfg=DATA[alt], times=cfg.times.map((t,i)=>i===2&&alt==="B"?pilot:t), seconds=windowMin*60;
+ const caps=times.map(t=>seconds/t), lineCap=Math.floor(Math.min(...caps));
+ const bottleneck=times.indexOf(Math.max(...times));
+ const feasible=Math.min(demand,lineCap,INVENTORY), shortage=Math.max(0,demand-feasible);
+ const cost=cfg.fixed+cfg.variable*feasible, productivity=feasible/LABOR_HOURS;
+ const stationRows=times.map((t,i)=>({name:"Estación "+String.fromCharCode(65+i),time:t,cap:caps[i],load:t*feasible,util:t*feasible/seconds}));
+ const warning=caps.some(c=>c>INVENTORY);
+ let out='<div class="metrics">'+
+ '<div class="metric">Capacidad de línea<b>'+lineCap+' u/jornada</b></div>'+
+ '<div class="metric">Cuello de botella<b>Estación '+String.fromCharCode(65+bottleneck)+'</b><small>'+fmt(times[bottleneck],1)+' s/unidad</small></div>'+
+ '<div class="metric">Volumen realizable<b>'+feasible+' unidades</b></div>'+
+ '<div class="metric">Cumplimiento<b>'+(shortage===0?'Sí':'No')+'</b><small>Faltante: '+shortage+' unidades</small></div>'+
+ '<div class="metric">Coste diario<b>$'+fmt(cost,2)+'</b></div>'+
+ '<div class="metric">Productividad<b>'+fmt(productivity,2)+' u/h-persona</b></div></div>';
+ out+='<h3>Cargas por estación</h3><table><thead><tr><th>Estación</th><th>Tiempo normal</th><th>Capacidad calculada</th><th>Carga al volumen realizable</th><th>Ocupación</th></tr></thead><tbody>';
+ stationRows.forEach(r=>{out+='<tr><td>'+r.name+'</td><td>'+fmt(r.time,1)+' s/u</td><td>'+fmt(r.cap,2)+' u/jornada</td><td>'+fmt(r.load/60,2)+' min</td><td>'+fmt(r.util*100,1)+'%</td></tr>';});
+ out+='</tbody></table>';
+ out+='<p><strong>Alternativa:</strong> '+cfg.name+' · <strong>Demanda:</strong> '+demand+' · <strong>Ventana:</strong> '+windowMin+' min · <strong>Inventario:</strong> '+INVENTORY+' unidades.</p>';
+ out+='<p><span class="formula">Capacidad estación = ('+windowMin+' × 60) / tiempo (s/u)</span><br><span class="formula">Capacidad línea = mínimo de capacidades = '+lineCap+' u</span><br><span class="formula">Volumen realizable = mínimo('+demand+', '+lineCap+', 350) = '+feasible+' u</span><br><span class="formula">Coste diario = $'+cfg.fixed+' + ($'+cfg.variable+' × '+feasible+') = $'+fmt(cost,2)+'</span><br><span class="formula">Productividad = '+feasible+' / 28 = '+fmt(productivity,2)+' u/h-persona</span></p>';
+ out+=warning?'<div class="warning"><strong>Advertencia de inventario:</strong> al menos una capacidad de estación supera las 350 unidades disponibles. La producción realizable está limitada por demanda, capacidad e inventario.</div>':'<div class="ok">Ninguna capacidad de estación supera el inventario disponible.</div>';
+ out+=shortage===0?'<div class="ok">La demanda se puede cubrir bajo los supuestos del modelo.</div>':'<div class="warning">No se cubre toda la demanda. Faltan '+shortage+' unidades.</div>';
+ $("results").innerHTML=out;
+}
+function updatePilot(){const active=$("alternative").value==="B";$("pilotWrap").style.opacity=active?"1":".45";$("pilot").disabled=!active;}
+$("alternative").addEventListener("change",updatePilot);
+$("calculate").addEventListener("click",calculate);
+["demand","window","pilot"].forEach(id=>$(id).addEventListener("change",calculate));
+updatePilot();calculate();
+</script></body></html>
